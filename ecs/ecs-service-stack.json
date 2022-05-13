@@ -1,0 +1,193 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Parameters": {
+    "CpuUnits": {
+      "Type": "Number",
+      "Default": "512",
+      "AllowedValues": ["256", "512", "1024", "2048", "4096"],
+      "Description": "Number of VCPU Units, 1VCPU = 1024 units"
+    },
+    "MemoryUnits": {
+      "Type": "Number",
+      "Default": "1024",
+      "Description": "Quanitity in GB of RAM for service, Accepted values are restricted by CPU Unit quantity, please check: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-cpu"
+    },
+    "ContainerUrl": {
+      "Type": "String",
+      "Description": "ECR Docker Container URL and Tag"
+    },
+    "ServiceName": {
+      "Type": "String",
+      "Description": "Name of the ECS Service"
+    },
+    "ServiceExecutionRoleArn": {
+      "Type":"String",
+      "Description": "ARN of the Role that will manage task scaling"
+    },
+    "TaskExecutionRoleArn": {
+      "Type": "String",
+      "Description": "ARN of the Role that will manage the task execution environment, permissions for operations within the container"
+    },
+    "LoadBalancerHost":{
+      "Type": "String",
+      "Default": "api-portal2-staging.smartstac.co.uk",
+      "Description": "The host header for the Load Balancer listener, must not contain www/http/https decorations"
+    },
+    "LoadBalancerListenerArn": {
+      "Type":"String",
+      "Description": "ARN of the Load Balancer that the new Service will attach to"
+    },
+    "RulePriority": {
+      "Type": "Number",
+      "Description": "The Priority Number for the Load BalanverListener Rule, MUST BE UNIQUE TO LISTENER"
+    },
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id",
+      "Default": "vpc-0b530c5f4f45ccf61",
+      "Description": "Id of the VPC for the Target Group"
+    },
+    "ServicePaths": {
+      "Type":"CommaDelimitedList",
+      "Description": "URL that the service will exist on e.g. /quotes*"
+    },
+    "DbSecret": {
+      "Type": "String",
+      "Description": "Name of the Secret in Secrets Manager"
+    },
+    "EnvironmentUrl": {
+      "Type": "String",
+      "Default": "https://api-portal2-staging.smartstac.co.uk",
+      "Description": "URL for cross-service requests"
+    },
+    "EnvironmentName": {
+      "Type": "String",
+      "Default": "staging",
+      "AllowedValues": ["development", "staging", "uat", "production"],
+      "Description": "Name of the environment"
+    }
+  },
+  "Resources": {
+    "LogGroup":{
+      "Type": "AWS::Logs::LogGroup",
+      "Properties":{
+        "LogGroupName": {"Fn::Sub": ["/ecs/${Service}-${Env}-logs", {"Service":{"Ref":"ServiceName"}, "Env": {"Ref": "EnvironmentName"}}]},
+        "RetentionInDays": 14
+      }
+    },
+    "ECSTask": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "Family": { "Fn::Join": [ "-", [{"Ref": "ServiceName"}, {"Ref": "EnvironmentName"}, "task"]]},
+        "Cpu": {"Ref": "CpuUnits"},
+        "Memory": {"Ref": "MemoryUnits"},
+        "ExecutionRoleArn": {"Ref": "ServiceExecutionRoleArn"},
+        "TaskRoleArn": {"Ref": "TaskExecutionRoleArn"},
+        "NetworkMode": "awsvpc",
+        "ContainerDefinitions": [{
+          "Name": { "Fn::Join": [ "-", [{ "Ref": "ServiceName"}, {"Ref": "EnvironmentName"}, "container"]]},
+          "Image": {"Ref": "ContainerUrl"},
+          "PortMappings":[
+            {
+              "ContainerPort":"80",
+              "HostPort":"80",
+              "Protocol": "tcp"
+            },
+            {
+              "ContainerPort":"443",
+              "HostPort":"443",
+              "Protocol": "tcp"
+            }
+          ],
+          "LogConfiguration": {
+            "LogDriver": "awslogs",
+            "Options": {
+              "awslogs-stream-prefix":{"Fn::Join": ["-", [{"Ref": "ServiceName"}, {"Ref": "EnvironmentName"}]]},
+              "awslogs-group": {"Ref": "LogGroup"},
+              "awslogs-region": {"Ref": "AWS::Region"}
+            }
+          },
+          "Environment": [
+            {
+              "Name": "ENVIRONMENT",
+              "Value": { "Ref": "EnvironmentName" }
+            },
+            {
+              "Name":"DB_SECRET",
+              "Value": {"Ref": "DbSecret"}
+            }
+          ]
+        }],
+        "RequiresCompatibilities": ["FARGATE"]
+      }
+    },
+    "TargetGroup": {
+      "Type":"AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "HealthCheckEnabled": "True",
+        "HealthCheckPath":"/healthcheck",
+        "HealthCheckProtocol": "HTTPS",
+        "HealthCheckIntervalSeconds": "30",
+        "HealthCheckTimeoutSeconds": "5",
+        "UnhealthyThresholdCount": "5",
+        "TargetType": "ip",
+        "Protocol": "HTTPS",
+        "Port": "443",
+        "Name": { "Fn::Join": [ "-", [ {"Ref": "ServiceName"}, {"Ref":"EnvironmentName"},"tg"]]},
+        "VpcId": {"Ref": "VpcId"}
+      }
+    },
+    "LoadBalancerListenerRule": {
+      "Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+      "DependsOn": "TargetGroup",
+      "Properties": {
+        "ListenerArn": { "Ref": "LoadBalancerListenerArn" },
+        "Priority": { "Ref": "RulePriority"},
+        "Actions": [
+          {
+            "TargetGroupArn": { "Ref" : "TargetGroup"},
+            "Type": "forward"
+          }
+        ],
+        "Conditions": [
+          {
+            "Field": "host-header",
+            "HostHeaderConfig": {
+              "Values": [{"Ref":"LoadBalancerHost"}]
+            }
+          },
+          {
+            "Field": "path-pattern",
+            "PathPatternConfig": {
+              "Values": {"Ref": "ServicePaths"}
+            }
+          }
+        ]
+      }
+    },
+    "ECSService": {
+      "Type": "AWS::ECS::Service",
+      "DependsOn": "LoadBalancerListenerRule",
+      "Properties": {
+        "Cluster": "",
+        "DesiredCount": "1",
+        "LaunchType": "FARGATE",
+        "TaskDefinition": { "Ref": "ECSTask" },
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "DISABLED",
+            "SecurityGroups": ["sg-"],
+            "Subnets": [ "subnet-", "subnet-","subnet-"]
+          }
+        },
+        "ServiceName": { "Fn::Join": [ "-", [{"Ref": "ServiceName"}, {"Ref": "EnvironmentName"}, "service"]]},
+        "LoadBalancers": [
+          {
+            "ContainerName": { "Fn::Join": [ "-", [{ "Ref": "ServiceName"}, {"Ref": "EnvironmentName"}, "container"]]},
+            "ContainerPort": "443",
+            "TargetGroupArn": {"Ref": "TargetGroup"}
+          }
+        ]
+      }
+    }
+  }
+}

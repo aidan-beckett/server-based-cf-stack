@@ -1,0 +1,58 @@
+[
+  {
+    "ParameterKey": "CpuUnits",
+    "ParameterValue": "512"
+  },
+  {
+    "ParameterKey": "MemoryUnits",
+    "ParameterValue": "1024"
+  },
+  {
+    "ParameterKey": "ContainerUrl",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ServiceExecutionRoleArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "TaskExecutionRoleArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "DbSecret",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "EnvironmentUrl",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "EnvironmentName",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "LoadBalancerHost",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "LoadBalancerListenerArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "RulePriority",
+    "ParameterValue": 100
+  },
+  {
+    "ParameterKey": "ServiceName",
+    "ParameterValue": "generic-service"
+  },
+  {
+    "ParameterKey": "ServicePaths",
+    "ParameterValue": "/test"
+  },
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": ""
+  }
+]
